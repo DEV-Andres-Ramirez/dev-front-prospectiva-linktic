@@ -6,16 +6,11 @@ import { supabase } from "@/lib/supabase";
 import { agruparRespuestas, type Cluster, type Respuesta } from "@/lib/clustering";
 import { CATEGORIAS, PREGUNTAS, type Categoria } from "@/lib/preguntas";
 
-/* ————— Diseño de la gráfica —————
-   Plano cartesiano compartido: eje X = número de menciones (magnitud),
-   eje Y = tres carriles, uno por pregunta. Cada burbuja agrupa las
-   respuestas similares; su posición y su área codifican las menciones. */
-
-const ML = 18;
-const MR = 18;
-const LABEL_FONT = 11;
-const LABEL_H = 14;
-const INK = "#334155";
+/* ————— Nube de ideas —————
+   Empaquetado orgánico de círculos: cada burbuja es una idea, las
+   respuestas similares se funden en una sola burbuja más grande y un
+   contador indica cuántas veces se mencionó. Se ve una pregunta a la
+   vez, elegida con el selector. */
 
 /* Tinta interior por color de serie (según luminancia del relleno) */
 const INK_SOBRE: Record<string, string> = {
@@ -24,98 +19,115 @@ const INK_SOBRE: Record<string, string> = {
   "#e87ba4": "#43102a",
 };
 
-type Burbuja = { cluster: Cluster; cx: number; dy: number; r: number };
-
-type Etiqueta = {
-  x: number;
-  y: number;
-  texto: string;
-  anchor: "start" | "end";
+/* Degradado sutil por categoría: centro apenas más claro del mismo tono */
+const GRADIENTE: Record<Categoria, [string, string]> = {
+  pregunta_1: ["#4189e0", "#2a78d6"],
+  pregunta_2: ["#1e941e", "#008300"],
+  pregunta_3: ["#eb92b3", "#e87ba4"],
 };
 
-type Caja = { x1: number; y1: number; x2: number; y2: number };
+type BurbujaPack = { cluster: Cluster; x: number; y: number; r: number };
 
-const intersecta = (a: Caja, b: Caja) =>
-  a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+/**
+ * Empaquetado en espiral: la idea más mencionada al centro y el resto
+ * acomodándose alrededor sin chocar; al final todo se escala al lienzo.
+ */
+function empaquetar(clusters: Cluster[], w: number, h: number): BurbujaPack[] {
+  if (clusters.length === 0 || w <= 0) return [];
+  const maxC = clusters[0].total;
+  const radioDe = (c: number) =>
+    40 + (maxC <= 1 ? 0 : ((Math.sqrt(c) - 1) / (Math.sqrt(maxC) - 1)) * 45);
 
-function calcularCarril(clusters: Cluster[], w: number, maxX: number) {
-  const innerW = w - ML - MR;
-  const rMin = w < 480 ? 11 : 13;
-  const rMax = w < 480 ? 22 : 30;
-  const escalaR = (c: number) =>
-    maxX <= 1
-      ? rMin
-      : rMin + ((Math.sqrt(c) - 1) / (Math.sqrt(maxX) - 1)) * (rMax - rMin);
-  const escalaX = (c: number) => ML + (c / (maxX + 0.5)) * innerW;
-
-  const burbujas: Burbuja[] = [];
-  for (const cluster of clusters) {
-    const r = escalaR(cluster.total);
-    const cx = Math.min(Math.max(escalaX(cluster.total), ML + r), w - MR - r);
-    let dy = 0;
-    for (let paso = 0; paso < 400; paso++) {
-      const cand = paso === 0 ? 0 : ((paso % 2 === 1 ? 1 : -1) * Math.ceil(paso / 2)) * 14;
-      const choca = burbujas.some(
-        (b) => Math.hypot(cx - b.cx, cand - b.dy) < r + b.r + 6
-      );
-      if (!choca) {
-        dy = cand;
-        break;
+  const colocadas: BurbujaPack[] = [];
+  clusters.forEach((cluster, i) => {
+    const r = radioDe(cluster.total);
+    if (i === 0) {
+      colocadas.push({ cluster, x: 0, y: 0, r });
+      return;
+    }
+    const anguloBase = i * 2.39996; // ángulo áureo: reparte direcciones
+    for (let paso = 1; paso < 4000; paso++) {
+      const rad = paso * 3;
+      const ang = anguloBase + paso * 0.35;
+      const x = rad * Math.cos(ang);
+      const y = rad * Math.sin(ang);
+      if (colocadas.every((o) => Math.hypot(x - o.x, y - o.y) >= r + o.r + 6)) {
+        colocadas.push({ cluster, x, y, r });
+        return;
       }
     }
-    burbujas.push({ cluster, cx, dy, r });
-  }
-
-  /* Etiquetas directas: junto a la burbuja, saltando las que chocan
-     (el tooltip y la tabla las cubren) */
-  const cajasBurbujas: Caja[] = burbujas.map((b) => ({
-    x1: b.cx - b.r,
-    y1: b.dy - b.r,
-    x2: b.cx + b.r,
-    y2: b.dy + b.r,
-  }));
-  const cajasEtiquetas: Caja[] = [];
-  const etiquetas: (Etiqueta | null)[] = burbujas.map((b, i) => {
-    const texto = b.cluster.etiqueta;
-    const wTxt = texto.length * (LABEL_FONT * 0.62) + 6;
-    const candidatos: { x1: number; anchor: "start" | "end" }[] = [
-      { x1: b.cx + b.r + 6, anchor: "start" },
-      { x1: b.cx - b.r - 6 - wTxt, anchor: "end" },
-    ];
-    for (const c of candidatos) {
-      const caja: Caja = {
-        x1: c.x1,
-        y1: b.dy - LABEL_H / 2,
-        x2: c.x1 + wTxt,
-        y2: b.dy + LABEL_H / 2,
-      };
-      if (caja.x1 < 2 || caja.x2 > w - 2) continue;
-      const choca =
-        cajasBurbujas.some((cb, j) => j !== i && intersecta(caja, cb)) ||
-        cajasEtiquetas.some((cb) => intersecta(caja, cb));
-      if (!choca) {
-        cajasEtiquetas.push(caja);
-        return {
-          x: c.anchor === "start" ? caja.x1 : caja.x2,
-          y: b.dy,
-          texto,
-          anchor: c.anchor,
-        };
-      }
-    }
-    return null;
+    colocadas.push({ cluster, x: 0, y: 0, r });
   });
 
-  const mitad = Math.max(
-    48,
-    ...burbujas.map((b) => Math.abs(b.dy) + b.r + 12)
+  const minX = Math.min(...colocadas.map((b) => b.x - b.r));
+  const maxX = Math.max(...colocadas.map((b) => b.x + b.r));
+  const minY = Math.min(...colocadas.map((b) => b.y - b.r));
+  const maxY = Math.max(...colocadas.map((b) => b.y + b.r));
+  const margen = 14;
+  const s = Math.min(
+    (w - 2 * margen) / (maxX - minX),
+    (h - 2 * margen) / (maxY - minY),
+    2
   );
-  return { burbujas, etiquetas, mitad };
+  const dx = (w - (maxX - minX) * s) / 2 - minX * s;
+  const dy = (h - (maxY - minY) * s) / 2 - minY * s;
+  return colocadas.map((b) => ({
+    cluster: b.cluster,
+    x: b.x * s + dx,
+    y: b.y * s + dy,
+    r: b.r * s,
+  }));
+}
+
+/** Parte la etiqueta en líneas que quepan dentro de la burbuja, o null si no cabe */
+function partirEtiqueta(
+  texto: string,
+  r: number,
+  fs: number,
+  permitirGuion: boolean
+): string[] | null {
+  const porLinea = Math.max(3, Math.floor((r * 1.8) / (fs * 0.62)));
+  const maxLineas = Math.max(1, Math.floor((r * 1.3) / (fs * 1.15)));
+  const lineas: string[] = [];
+  let actual = "";
+  for (const palabra of texto.split(" ")) {
+    const candidata = actual ? `${actual} ${palabra}` : palabra;
+    if (candidata.length <= porLinea) {
+      actual = candidata;
+      continue;
+    }
+    if (actual) lineas.push(actual);
+    if (palabra.length <= porLinea) {
+      actual = palabra;
+      continue;
+    }
+    // Palabra más larga que la línea: solo se parte con guion como último recurso
+    if (!permitirGuion) return null;
+    let resto = palabra;
+    while (resto.length > porLinea) {
+      lineas.push(`${resto.slice(0, porLinea - 1)}-`);
+      resto = resto.slice(porLinea - 1);
+    }
+    actual = resto;
+  }
+  if (actual) lineas.push(actual);
+  return lineas.length <= maxLineas ? lineas : null;
+}
+
+/** Mejor tamaño de fuente con el que la etiqueta cabe: primero sin partir palabras */
+function ajustarEtiqueta(texto: string, r: number) {
+  const ideal = Math.round(Math.max(8, Math.min(15, r / 2.8)));
+  for (const permitirGuion of [false, true]) {
+    for (let fs = ideal; fs >= 8; fs--) {
+      const lineas = partirEtiqueta(texto, r, fs, permitirGuion);
+      if (lineas) return { lineas, fs };
+    }
+  }
+  return null;
 }
 
 type Tip = {
   cluster: Cluster;
-  categoria: Categoria;
   x: number;
   y: number;
   wrapW: number;
@@ -124,8 +136,9 @@ type Tip = {
 export default function ResultsBoard() {
   const [filas, setFilas] = useState<Respuesta[] | null>(null);
   const [fallo, setFallo] = useState(false);
+  const [seleccion, setSeleccion] = useState<Categoria>("pregunta_1");
   const [tip, setTip] = useState<Tip | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
   const [ancho, setAncho] = useState(0);
   const medidorRef = useRef<HTMLDivElement>(null);
   const envoltorioRef = useRef<HTMLDivElement>(null);
@@ -177,55 +190,45 @@ export default function ResultsBoard() {
     return mapa;
   }, [filas]);
 
-  const maxX = useMemo(() => {
-    let m = 2;
-    for (const clusters of porCategoria.values()) {
-      for (const c of clusters) m = Math.max(m, c.total);
-    }
-    return m;
-  }, [porCategoria]);
-
   const totalIdeas = useMemo(() => {
     let n = 0;
     for (const clusters of porCategoria.values()) n += clusters.length;
     return n;
   }, [porCategoria]);
 
-  const ticks = useMemo(() => {
-    const paso = maxX > 10 ? Math.ceil(maxX / 8) : 1;
-    const t: number[] = [];
-    for (let v = 0; v <= maxX; v += paso) t.push(v);
-    return t;
-  }, [maxX]);
+  const pregunta = PREGUNTAS[seleccion];
+  const clustersSel = porCategoria.get(seleccion) ?? [];
+  const respuestasSel = clustersSel.reduce((s, c) => s + c.total, 0);
+  const alto = ancho < 480 ? 400 : 480;
 
-  const escalaX = useCallback(
-    (c: number) => ML + (c / (maxX + 0.5)) * (ancho - ML - MR),
-    [ancho, maxX]
+  const burbujas = useMemo(
+    () => empaquetar(clustersSel, ancho, alto),
+    [clustersSel, ancho, alto]
   );
 
-  const mostrarTip = (
-    el: Element,
-    cluster: Cluster,
-    categoria: Categoria
-  ) => {
+  const mostrarTip = (el: Element, cluster: Cluster) => {
     const envoltorio = envoltorioRef.current;
     if (!envoltorio) return;
     const rb = el.getBoundingClientRect();
     const rw = envoltorio.getBoundingClientRect();
     setTip({
       cluster,
-      categoria,
       x: rb.left + rb.width / 2 - rw.left,
       y: rb.top - rw.top,
       wrapW: rw.width,
     });
   };
 
+  const ocultarTip = () => {
+    setHover(null);
+    setTip(null);
+  };
+
   const cargando = filas === null;
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-8 sm:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="lk-anim flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Image
             src="/linktic_logo.png"
@@ -245,9 +248,7 @@ export default function ResultsBoard() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-400">
-            Se actualiza cada 10 s
-          </span>
+          <span className="text-xs text-slate-400">Se actualiza cada 10 s</span>
           <button
             type="button"
             onClick={cargar}
@@ -265,7 +266,7 @@ export default function ResultsBoard() {
       )}
 
       {/* Indicadores */}
-      <section className="lk-anim mt-6 grid grid-cols-2 gap-3 sm:gap-4">
+      <section className="lk-anim lk-delay-1 mt-6 grid grid-cols-2 gap-3 sm:gap-4">
         {[
           { etiqueta: "Respuestas", valor: filas?.length ?? 0 },
           { etiqueta: "Ideas agrupadas", valor: totalIdeas },
@@ -282,204 +283,235 @@ export default function ResultsBoard() {
         ))}
       </section>
 
-      {/* Gráfica */}
-      <section className="lk-anim lk-delay-1 mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+      {/* Selector de pregunta */}
+      <div className="lk-anim lk-delay-2 mt-6 flex flex-wrap gap-2" role="group" aria-label="Elegir pregunta">
+        {CATEGORIAS.map((cat) => {
+          const p = PREGUNTAS[cat];
+          const activa = seleccion === cat;
+          return (
+            <button
+              key={cat}
+              type="button"
+              aria-pressed={activa}
+              onClick={() => {
+                setSeleccion(cat);
+                ocultarTip();
+              }}
+              className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                activa
+                  ? "scale-105 shadow-md"
+                  : "bg-white text-slate-600 ring-1 ring-black/10 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"
+              }`}
+              style={
+                activa
+                  ? { backgroundColor: p.color, color: INK_SOBRE[p.color] }
+                  : undefined
+              }
+            >
+              {!activa && (
+                <span
+                  aria-hidden="true"
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: p.color }}
+                />
+              )}
+              {p.texto}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Nube de ideas */}
+      <section className="lk-anim lk-delay-3 mt-4 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
         <div className="lk-accent-bar h-1" />
         <div
           ref={envoltorioRef}
           className="relative px-4 pb-6 pt-5 sm:px-6"
           onKeyDown={(e) => {
-            if (e.key === "Escape") setTip(null);
+            if (e.key === "Escape") ocultarTip();
           }}
         >
-          <h2 className="text-base font-semibold tracking-tight sm:text-lg">
-            Mapa de ideas
-          </h2>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full transition-colors duration-300"
+              style={{ backgroundColor: pregunta.color }}
+            />
+            <h2 className="text-base font-semibold tracking-tight sm:text-lg">
+              {pregunta.texto}
+            </h2>
+            {!cargando && (
+              <span className="text-xs tabular-nums text-slate-400">
+                {respuestasSel} {respuestasSel === 1 ? "respuesta" : "respuestas"} ·{" "}
+                {clustersSel.length} {clustersSel.length === 1 ? "idea" : "ideas"}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 sm:text-sm">
-            Cada burbuja agrupa respuestas similares. Cuanto más a la derecha y
-            más grande, más veces fue mencionada la idea.
+            Cada burbuja es una idea: las respuestas similares se agrupan y el
+            contador indica cuántas veces se mencionó. Toca una burbuja para ver
+            el detalle.
           </p>
 
-          <div ref={medidorRef} className="mt-5">
+          <div
+            ref={medidorRef}
+            className="mt-4 overflow-hidden rounded-2xl bg-slate-50/80 ring-1 ring-slate-100"
+          >
             {cargando && (
-              <p className="py-12 text-center text-sm text-slate-400">
+              <p className="py-24 text-center text-sm text-slate-400">
                 Cargando respuestas…
               </p>
             )}
 
-            {!cargando && ancho > 0 && (
-              <div>
-                {CATEGORIAS.map((cat) => {
-                  const pregunta = PREGUNTAS[cat];
-                  const clusters = porCategoria.get(cat) ?? [];
-                  const respuestasCat = clusters.reduce((s, c) => s + c.total, 0);
-                  const { burbujas, etiquetas, mitad } = calcularCarril(
-                    clusters,
-                    ancho,
-                    maxX
-                  );
-                  const alto = mitad * 2;
-                  return (
-                    <div key={cat} className="border-b border-slate-100 last:border-b-0">
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pt-4">
-                        <span
-                          aria-hidden="true"
-                          className="inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full"
-                          style={{ backgroundColor: pregunta.color }}
-                        />
-                        <h3 className="text-sm font-semibold">{pregunta.texto}</h3>
-                        <span className="text-xs tabular-nums text-slate-400">
-                          {respuestasCat}{" "}
-                          {respuestasCat === 1 ? "respuesta" : "respuestas"}
-                        </span>
-                      </div>
+            {!cargando && ancho > 0 && burbujas.length === 0 && (
+              <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+                <span className="h-14 w-14 rounded-full border-2 border-dashed border-slate-300" />
+                <p className="text-sm font-medium text-slate-500">
+                  Aún no hay respuestas para esta pregunta.
+                </p>
+                <p className="text-xs text-slate-400">
+                  Las burbujas aparecerán aquí en tiempo real.
+                </p>
+              </div>
+            )}
 
-                      {clusters.length === 0 ? (
-                        <p className="py-8 text-center text-sm text-slate-400">
-                          Aún no hay respuestas para esta pregunta.
-                        </p>
-                      ) : (
-                        <svg
-                          width={ancho}
-                          height={alto}
-                          className="mt-1 block"
-                          role="img"
-                          aria-label={`Ideas para: ${pregunta.texto}`}
+            {!cargando && ancho > 0 && burbujas.length > 0 && (
+              <svg
+                key={seleccion}
+                width={ancho}
+                height={alto}
+                className="block"
+                role="img"
+                aria-label={`Nube de ideas para: ${pregunta.texto}`}
+              >
+                <defs>
+                  <radialGradient id={`lk-grad-${seleccion}`} cx="32%" cy="28%" r="80%">
+                    <stop offset="0%" stopColor={GRADIENTE[seleccion][0]} />
+                    <stop offset="100%" stopColor={GRADIENTE[seleccion][1]} />
+                  </radialGradient>
+                </defs>
+
+                {burbujas.map((b, i) => {
+                  const activa = hover === i;
+                  const etiqueta = ajustarEtiqueta(b.cluster.etiqueta, b.r);
+                  const ink = INK_SOBRE[pregunta.color] ?? "#ffffff";
+                  const badge = b.cluster.total > 1;
+                  const rBadge = Math.min(14, Math.max(10, b.r * 0.28));
+                  const bx = b.x + b.r * 0.76;
+                  const by = b.y - b.r * 0.76;
+                  return (
+                    <g key={`${b.cluster.etiqueta}-${i}`}>
+                      <g
+                        className="lk-bubble-in"
+                        style={{ animationDelay: `${Math.min(i * 45, 700)}ms` }}
+                      >
+                        <g
+                          className="lk-bob"
+                          style={{
+                            animationDuration: `${6 + (i % 5)}s`,
+                            animationDelay: `${-((i * 0.9) % 6)}s`,
+                          }}
                         >
-                          {ticks.map((t) => (
-                            <line
-                              key={t}
-                              x1={escalaX(t)}
-                              x2={escalaX(t)}
-                              y1={0}
-                              y2={alto}
-                              stroke={t === 0 ? "#dbe1e8" : "#edf0f4"}
-                              strokeWidth={1}
+                          <g
+                            style={{
+                              transformBox: "fill-box",
+                              transformOrigin: "center",
+                              transform: activa ? "scale(1.06)" : "scale(1)",
+                              transition: "transform 250ms cubic-bezier(0.22, 1, 0.36, 1)",
+                              filter: activa
+                                ? "drop-shadow(0 8px 14px rgba(15, 23, 42, 0.28))"
+                                : "drop-shadow(0 2px 4px rgba(15, 23, 42, 0.12))",
+                            }}
+                          >
+                            <circle
+                              cx={b.x}
+                              cy={b.y}
+                              r={b.r}
+                              fill={`url(#lk-grad-${seleccion})`}
+                              stroke="#ffffff"
+                              strokeWidth={2}
                             />
-                          ))}
-                          {burbujas.map((b, i) => {
-                            const id = `${cat}-${i}`;
-                            const activa = hover === id;
-                            return (
-                              <g key={id}>
-                                <circle
-                                  cx={b.cx}
-                                  cy={mitad + b.dy}
-                                  r={b.r}
-                                  fill={pregunta.color}
-                                  stroke="#ffffff"
-                                  strokeWidth={2}
-                                  opacity={activa ? 0.85 : 1}
-                                />
-                                {b.r >= 15 &&
-                                  String(b.cluster.total).length * 8 <= b.r && (
-                                    <text
-                                      x={b.cx}
-                                      y={mitad + b.dy + 4}
-                                      textAnchor="middle"
-                                      fontSize={12}
-                                      fontWeight={600}
-                                      fill={INK_SOBRE[pregunta.color] ?? "#ffffff"}
-                                    >
-                                      {b.cluster.total}
-                                    </text>
-                                  )}
-                              </g>
-                            );
-                          })}
-                          {etiquetas.map((e, i) =>
-                            e ? (
+                            {etiqueta && (
                               <text
-                                key={i}
-                                x={e.x}
-                                y={mitad + e.y + 4}
-                                textAnchor={e.anchor}
-                                fontSize={LABEL_FONT}
-                                fontWeight={500}
-                                fill={INK}
-                                stroke="#ffffff"
-                                strokeWidth={3}
-                                paintOrder="stroke"
+                                textAnchor="middle"
+                                fontSize={etiqueta.fs}
+                                fontWeight={600}
+                                fill={ink}
+                                style={{ pointerEvents: "none" }}
                               >
-                                {e.texto}
+                                {etiqueta.lineas.map((linea, j) => (
+                                  <tspan
+                                    key={j}
+                                    x={b.x}
+                                    y={
+                                      b.y +
+                                      etiqueta.fs * 0.36 +
+                                      (j - (etiqueta.lineas.length - 1) / 2) *
+                                        etiqueta.fs *
+                                        1.15
+                                    }
+                                  >
+                                    {linea}
+                                  </tspan>
+                                ))}
                               </text>
-                            ) : null
-                          )}
-                          {/* Zonas de interacción (más grandes que la marca) */}
-                          {burbujas.map((b, i) => {
-                            const id = `${cat}-${i}`;
-                            return (
-                              <circle
-                                key={id}
-                                cx={b.cx}
-                                cy={mitad + b.dy}
-                                r={Math.max(b.r + 8, 24)}
-                                fill="transparent"
-                                tabIndex={0}
-                                role="img"
-                                aria-label={`${b.cluster.etiqueta}: ${b.cluster.total} ${
-                                  b.cluster.total === 1 ? "mención" : "menciones"
-                                }`}
-                                className="cursor-pointer outline-none focus-visible:stroke-slate-400 focus-visible:stroke-2"
-                                onPointerEnter={(ev) => {
-                                  setHover(id);
-                                  mostrarTip(ev.currentTarget, b.cluster, cat);
-                                }}
-                                onPointerLeave={() => {
-                                  setHover(null);
-                                  setTip(null);
-                                }}
-                                onFocus={(ev) => {
-                                  setHover(id);
-                                  mostrarTip(ev.currentTarget, b.cluster, cat);
-                                }}
-                                onBlur={() => {
-                                  setHover(null);
-                                  setTip(null);
-                                }}
-                              />
-                            );
-                          })}
-                        </svg>
-                      )}
-                    </div>
+                            )}
+                            {badge && (
+                              <g>
+                                <circle
+                                  cx={bx}
+                                  cy={by}
+                                  r={rBadge}
+                                  fill="#ffffff"
+                                  stroke={pregunta.color}
+                                  strokeWidth={1.5}
+                                />
+                                <text
+                                  x={bx}
+                                  y={by + 3.5}
+                                  textAnchor="middle"
+                                  fontSize={rBadge >= 12 ? 11 : 10}
+                                  fontWeight={700}
+                                  fill="#0f172a"
+                                >
+                                  {b.cluster.total}
+                                </text>
+                              </g>
+                            )}
+                          </g>
+                        </g>
+                      </g>
+                    </g>
                   );
                 })}
 
-                {/* Eje X compartido */}
-                <svg width={ancho} height={40} className="block" aria-hidden="true">
-                  <line
-                    x1={ML}
-                    x2={ancho - MR}
-                    y1={1}
-                    y2={1}
-                    stroke="#cbd5e1"
-                    strokeWidth={1}
+                {/* Zonas de interacción (más grandes que la marca) */}
+                {burbujas.map((b, i) => (
+                  <circle
+                    key={i}
+                    cx={b.x}
+                    cy={b.y}
+                    r={Math.max(b.r + 6, 24)}
+                    fill="transparent"
+                    tabIndex={0}
+                    role="img"
+                    aria-label={`${b.cluster.etiqueta}: ${b.cluster.total} ${
+                      b.cluster.total === 1 ? "mención" : "menciones"
+                    }`}
+                    className="cursor-pointer outline-none focus-visible:stroke-slate-400 focus-visible:stroke-2"
+                    onPointerEnter={(ev) => {
+                      setHover(i);
+                      mostrarTip(ev.currentTarget, b.cluster);
+                    }}
+                    onPointerLeave={ocultarTip}
+                    onFocus={(ev) => {
+                      setHover(i);
+                      mostrarTip(ev.currentTarget, b.cluster);
+                    }}
+                    onBlur={ocultarTip}
                   />
-                  {ticks.map((t) => (
-                    <text
-                      key={t}
-                      x={escalaX(t)}
-                      y={16}
-                      textAnchor="middle"
-                      fontSize={11}
-                      fill="#8a93a1"
-                      className="tabular-nums"
-                    >
-                      {t}
-                    </text>
-                  ))}
-                  <text
-                    x={ancho / 2}
-                    y={34}
-                    textAnchor="middle"
-                    fontSize={11}
-                    fill="#8a93a1"
-                  >
-                    Número de menciones
-                  </text>
-                </svg>
-              </div>
+                ))}
+              </svg>
             )}
           </div>
 
@@ -499,7 +531,7 @@ export default function ResultsBoard() {
               <p className="mt-0.5 text-xs text-slate-300">
                 {tip.cluster.total}{" "}
                 {tip.cluster.total === 1 ? "mención" : "menciones"} ·{" "}
-                {PREGUNTAS[tip.categoria].texto}
+                {pregunta.texto}
               </p>
               {tip.cluster.variantes.length > 0 && (
                 <div className="mt-2 border-t border-white/15 pt-2">
@@ -521,25 +553,62 @@ export default function ResultsBoard() {
         </div>
       </section>
 
-      {/* Vista de tabla (accesible, sin depender del color ni del tooltip) */}
-      <section className="lk-anim lk-delay-2 mt-6 grid gap-4 lg:grid-cols-3">
+      {/* Vista de tabla (accesible; la card seleccionada se resalta) */}
+      <section className="lk-anim lk-delay-4 mt-6 grid gap-4 lg:grid-cols-3">
         {CATEGORIAS.map((cat) => {
-          const pregunta = PREGUNTAS[cat];
+          const p = PREGUNTAS[cat];
           const clusters = porCategoria.get(cat) ?? [];
+          const activa = seleccion === cat;
           return (
             <div
               key={cat}
-              className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5"
+              role="button"
+              tabIndex={0}
+              aria-pressed={activa}
+              onClick={() => {
+                setSeleccion(cat);
+                ocultarTip();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSeleccion(cat);
+                  ocultarTip();
+                }
+              }}
+              className={`cursor-pointer overflow-hidden rounded-2xl bg-white text-left shadow-sm outline-none transition-all duration-300 focus-visible:ring-2 focus-visible:ring-slate-400 ${
+                activa
+                  ? "-translate-y-1 shadow-lg ring-2"
+                  : "ring-1 ring-black/5 opacity-75 hover:-translate-y-0.5 hover:opacity-100 hover:shadow-md"
+              }`}
+              style={activa ? { ["--tw-ring-color" as string]: p.color } : undefined}
             >
-              <div className="flex items-center gap-2 px-5 pt-4">
-                <span
-                  aria-hidden="true"
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: pregunta.color }}
-                />
-                <h2 className="text-sm font-semibold">{pregunta.texto}</h2>
+              <div
+                className="h-1 transition-opacity duration-300"
+                style={{ backgroundColor: p.color, opacity: activa ? 1 : 0.25 }}
+              />
+              <div className="flex items-center justify-between gap-2 px-5 pt-4">
+                <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: p.color }}
+                  />
+                  <h2 className="text-sm font-semibold">{p.texto}</h2>
+                </div>
+                {activa && (
+                  <span
+                    className="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                    style={{
+                      backgroundColor: p.color,
+                      color: INK_SOBRE[p.color],
+                    }}
+                  >
+                    En pantalla
+                  </span>
+                )}
               </div>
-              <div className="mt-2 overflow-x-auto px-5 pb-5">
+              <div className="mt-2 px-5 pb-5">
                 {clusters.length === 0 ? (
                   <p className="py-4 text-sm text-slate-400">Sin respuestas aún.</p>
                 ) : (

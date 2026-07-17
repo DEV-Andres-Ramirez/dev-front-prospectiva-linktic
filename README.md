@@ -11,7 +11,7 @@ visualizan en vivo en un mapa de ideas que agrupa las respuestas similares.
 | `/pregunta-1` | ¿En qué somos buenos? |
 | `/pregunta-2` | ¿Qué nos guía? |
 | `/pregunta-3` | ¿Cuáles son nuestros dolores? |
-| `/resultados` | Mapa de ideas + tablas por pregunta (se actualiza cada 10 s) |
+| `/resultados` | Nube de ideas con selector por pregunta + tablas (se actualiza cada 10 s) |
 
 Cada ventana de pregunta muestra primero un mensaje de bienvenida
 ("¡Hola, Linkers!") y luego permite registrar respuestas anónimas de máximo
