@@ -133,7 +133,7 @@ export default function ResultsBoard() {
   const cargar = useCallback(async () => {
     const { data, error } = await supabase
       .from("respuestas_prospectiva")
-      .select("id,nombre,respuesta,categoria")
+      .select("id,respuesta,categoria")
       .order("id", { ascending: true });
     if (!error && data) {
       setFilas(data as Respuesta[]);
@@ -184,12 +184,6 @@ export default function ResultsBoard() {
     }
     return m;
   }, [porCategoria]);
-
-  const participantes = useMemo(() => {
-    const set = new Set<string>();
-    for (const f of filas ?? []) set.add(f.nombre.trim().toUpperCase());
-    return set.size;
-  }, [filas]);
 
   const totalIdeas = useMemo(() => {
     let n = 0;
@@ -271,9 +265,8 @@ export default function ResultsBoard() {
       )}
 
       {/* Indicadores */}
-      <section className="mt-6 grid grid-cols-3 gap-3 sm:gap-4">
+      <section className="lk-anim mt-6 grid grid-cols-2 gap-3 sm:gap-4">
         {[
-          { etiqueta: "Participantes", valor: participantes },
           { etiqueta: "Respuestas", valor: filas?.length ?? 0 },
           { etiqueta: "Ideas agrupadas", valor: totalIdeas },
         ].map((kpi) => (
@@ -290,7 +283,7 @@ export default function ResultsBoard() {
       </section>
 
       {/* Gráfica */}
-      <section className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+      <section className="lk-anim lk-delay-1 mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
         <div className="lk-accent-bar h-1" />
         <div
           ref={envoltorioRef}
@@ -508,26 +501,28 @@ export default function ResultsBoard() {
                 {tip.cluster.total === 1 ? "mención" : "menciones"} ·{" "}
                 {PREGUNTAS[tip.categoria].texto}
               </p>
-              <div className="mt-2 border-t border-white/15 pt-2">
-                {tip.cluster.miembros.slice(0, 8).map((m) => (
-                  <p key={m.id} className="wrap-break-word text-xs leading-5 text-slate-200">
-                    <span className="text-slate-400">{m.nombre.trim()}</span>{" "}
-                    — {m.respuesta.trim()}
-                  </p>
-                ))}
-                {tip.cluster.miembros.length > 8 && (
-                  <p className="text-xs text-slate-400">
-                    +{tip.cluster.miembros.length - 8} más
-                  </p>
-                )}
-              </div>
+              {tip.cluster.variantes.length > 0 && (
+                <div className="mt-2 border-t border-white/15 pt-2">
+                  <p className="text-xs text-slate-400">Incluye también:</p>
+                  {tip.cluster.variantes.slice(0, 8).map((v) => (
+                    <p key={v} className="wrap-break-word text-xs leading-5 text-slate-200">
+                      {v}
+                    </p>
+                  ))}
+                  {tip.cluster.variantes.length > 8 && (
+                    <p className="text-xs text-slate-400">
+                      +{tip.cluster.variantes.length - 8} más
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
       </section>
 
       {/* Vista de tabla (accesible, sin depender del color ni del tooltip) */}
-      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+      <section className="lk-anim lk-delay-2 mt-6 grid gap-4 lg:grid-cols-3">
         {CATEGORIAS.map((cat) => {
           const pregunta = PREGUNTAS[cat];
           const clusters = porCategoria.get(cat) ?? [];
@@ -550,46 +545,31 @@ export default function ResultsBoard() {
                 ) : (
                   <table className="w-full table-fixed text-left text-sm">
                     <colgroup>
-                      <col className="w-[50%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[38%]" />
+                      <col className="w-[78%]" />
+                      <col className="w-[22%]" />
                     </colgroup>
                     <thead>
                       <tr className="text-xs uppercase tracking-wide text-slate-400">
                         <th className="py-2 pr-3 font-medium">Idea</th>
-                        <th
-                          className="py-2 pr-3 text-right font-medium"
-                          title="Menciones"
-                        >
-                          Nº
-                        </th>
-                        <th className="py-2 font-medium">Personas</th>
+                        <th className="py-2 text-right font-medium">Menciones</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {clusters.map((c, i) => {
-                        const personas = [
-                          ...new Set(c.miembros.map((m) => m.nombre.trim())),
-                        ].join(", ");
-                        return (
-                          <tr key={i} className="border-t border-slate-100 align-top">
-                            <td className="py-2.5 pr-3">
-                              <p className="wrap-break-word font-medium">{c.etiqueta}</p>
-                              {c.variantes.length > 0 && (
-                                <p className="mt-0.5 wrap-break-word text-xs text-slate-400">
-                                  Incluye: {c.variantes.join(", ")}
-                                </p>
-                              )}
-                            </td>
-                            <td className="py-2.5 pr-3 text-right tabular-nums">
-                              {c.total}
-                            </td>
-                            <td className="wrap-break-word py-2.5 text-xs leading-5 text-slate-500">
-                              {personas}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {clusters.map((c, i) => (
+                        <tr key={i} className="border-t border-slate-100 align-top">
+                          <td className="py-2.5 pr-3">
+                            <p className="wrap-break-word font-medium">{c.etiqueta}</p>
+                            {c.variantes.length > 0 && (
+                              <p className="mt-0.5 wrap-break-word text-xs text-slate-400">
+                                Incluye: {c.variantes.join(", ")}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-right tabular-nums">
+                            {c.total}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 )}

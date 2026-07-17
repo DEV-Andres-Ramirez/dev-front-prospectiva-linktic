@@ -34,11 +34,13 @@ body {
 
 .lk-button {
   background: linear-gradient(135deg, #1ba8ea 0%, #0a6cb1 100%);
-  transition: filter 150ms ease, transform 150ms ease;
+  transition: filter 150ms ease, transform 150ms ease, box-shadow 200ms ease;
 }
 
 .lk-button:hover:not(:disabled) {
   filter: brightness(1.07);
+  box-shadow: 0 12px 28px -12px rgba(14, 143, 216, 0.65);
+  transform: translateY(-1px);
 }
 
 .lk-button:active:not(:disabled) {
@@ -48,4 +50,115 @@ body {
 .lk-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ————— Animaciones ————— */
+
+@keyframes lk-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lk-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  70% {
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes lk-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes lk-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -22px, 0) scale(1.05);
+  }
+}
+
+@keyframes lk-gradient-pan {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+/* Entrada escalonada de elementos */
+.lk-anim {
+  animation: lk-fade-up 550ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.lk-delay-1 { animation-delay: 90ms; }
+.lk-delay-2 { animation-delay: 180ms; }
+.lk-delay-3 { animation-delay: 270ms; }
+.lk-delay-4 { animation-delay: 360ms; }
+.lk-delay-5 { animation-delay: 450ms; }
+.lk-delay-6 { animation-delay: 540ms; }
+
+.lk-pop {
+  animation: lk-pop 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Palomita de confirmación dibujándose */
+.lk-check {
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+  animation: lk-check-draw 500ms ease-out 200ms forwards;
+}
+
+/* Texto con degradado de marca en movimiento suave */
+.lk-text-gradient {
+  background: linear-gradient(100deg, #0a6cb1 0%, #0e8fd8 35%, #128c31 75%, #0a6cb1 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lk-gradient-pan 7s ease-in-out infinite alternate;
+}
+
+/* Manchas de color difuminadas del fondo */
+.lk-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.3;
+  pointer-events: none;
+  animation: lk-float 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lk-anim,
+  .lk-pop,
+  .lk-blob,
+  .lk-text-gradient {
+    animation: none;
+  }
+  .lk-check {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .lk-button:hover:not(:disabled) {
+    transform: none;
+  }
 }

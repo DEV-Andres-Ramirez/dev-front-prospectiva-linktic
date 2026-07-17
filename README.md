@@ -13,10 +13,10 @@ visualizan en vivo en un mapa de ideas que agrupa las respuestas similares.
 | `/pregunta-3` | ¿Cuáles son nuestros dolores? |
 | `/resultados` | Mapa de ideas + tablas por pregunta (se actualiza cada 10 s) |
 
-Cada ventana de pregunta pide primero el nombre del participante y luego
-permite registrar respuestas de máximo 50 caracteres, solo letras (sin números
-ni caracteres especiales), siempre en mayúsculas. Se pueden registrar varias
-respuestas por persona.
+Cada ventana de pregunta muestra primero un mensaje de bienvenida
+("¡Hola, Linkers!") y luego permite registrar respuestas anónimas de máximo
+50 caracteres, solo letras (sin números ni caracteres especiales), siempre en
+mayúsculas. Se pueden registrar varias respuestas por persona.
 
 ## Base de datos (Supabase)
 
@@ -25,7 +25,7 @@ Tabla `public.respuestas_prospectiva`:
 | Campo | Tipo | Detalle |
 |---|---|---|
 | `id` | bigint identity | autoincremental |
-| `nombre` | text | quien registra (1–80 caracteres) |
+| `nombre` | text (nullable) | ya no se usa: las respuestas son anónimas |
 | `respuesta` | text | la respuesta (1–50 caracteres) |
 | `categoria` | text | `pregunta_1` \| `pregunta_2` \| `pregunta_3` |
 
@@ -49,7 +49,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 
 - `src/app/pregunta-{1,2,3}/page.tsx` — rutas de las preguntas
 - `src/app/resultados/page.tsx` — ruta de resultados
-- `src/components/QuestionFlow.tsx` — flujo nombre → pregunta → guardado
+- `src/components/QuestionFlow.tsx` — flujo bienvenida → pregunta → guardado
 - `src/components/ResultsBoard.tsx` — indicadores, mapa de ideas y tablas
 - `src/lib/clustering.ts` — agrupación de respuestas similares (acentos, plurales, artículos, errores de tipeo)
 - `src/lib/preguntas.ts` — definición de preguntas y colores

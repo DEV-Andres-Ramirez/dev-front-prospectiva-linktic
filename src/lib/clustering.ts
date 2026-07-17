@@ -2,7 +2,6 @@ import type { Categoria } from "./preguntas";
 
 export type Respuesta = {
   id: number;
-  nombre: string;
   respuesta: string;
   categoria: Categoria;
 };
