@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #f2f6fa;
+  --foreground: #102433;
+  --lk-blue: #0e8fd8;
+  --lk-blue-deep: #0a6cb1;
+  --lk-green: #23a844;
+  --lk-green-deep: #128c31;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-lk-blue: var(--lk-blue);
+  --color-lk-blue-deep: var(--lk-blue-deep);
+  --color-lk-green: var(--lk-green);
+  --color-lk-green-deep: var(--lk-green-deep);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Franja de acento con el degradado de marca LinkTic (azul → verde) */
+.lk-accent-bar {
+  background: linear-gradient(90deg, #29c3f4 0%, #0d7fd1 45%, #23a844 100%);
+}
+
+.lk-button {
+  background: linear-gradient(135deg, #1ba8ea 0%, #0a6cb1 100%);
+  transition: filter 150ms ease, transform 150ms ease;
+}
+
+.lk-button:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.lk-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.lk-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
